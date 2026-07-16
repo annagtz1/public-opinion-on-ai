@@ -1,0 +1,263 @@
+---
+title: "DACSS695_SR_Final Project"
+format: html
+editor: visual
+---
+
+## 695SR Final Project Survey Analysis
+
+### Loading the Data
+
+```{r setup, include=FALSE}
+library(haven)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(tidyverse)
+library(labelled)
+library(descr)
+library(srvyr)
+library(survey)
+library(weights)
+library(anesrake)
+library(data.table)
+library(stargazer)
+library(rstatix)
+library(skimr)
+library(janitor)
+library(pollster)
+library(corrplot)
+library(gridExtra)
+library(kableExtra)
+```
+
+```{r}
+url <- "https://github.com/drCES/raw_survey_data_dacss695/raw/main/data_clean.dta"
+data <- read_dta(url)# Read the Stata file into R
+data <- as.data.frame(data) #for anesrake to work, data must be in data.frame
+```
+
+### Reviewing Unweighted Sample Demographic Profiles
+
+```{r}
+names(data)
+```
+
+```{r}
+freq(data$age)
+val_labels(data$age)
+freq(data$gender)
+val_labels(data$gender)
+freq(data$ethnicity)
+val_labels(data$ethnicity)
+freq(data$hispanic)
+val_labels(data$hispanic)
+freq(data$education)
+val_labels(data$education)
+```
+
+### Recoding existing data to match population target values
+
+```{r}
+#class example, recoding existing data to match pop. target values
+data <- data %>%
+  mutate(college = if_else(educ<=5, 2, 1),
+         hispanic2 = if_else(hispanic>1, 1, 2),
+         age_group = case_when(
+           age >= 18 & age <= 25 ~ 1,
+           age >= 26 & age <= 34 ~ 2,
+           age >= 35 & age <= 54 ~ 3,
+           age >= 55 & age <= 64 ~ 4, 
+           age > 64  ~ 5),
+         race5 = case_when(
+           ethnicity == 1  ~ 1,
+           ethnicity == 2  ~ 2,
+           ethnicity >= 4 & ethnicity <= 10 ~ 3,
+           ethnicity == 3 ~ 4, 
+           ethnicity >= 11 & ethnicity <= 15 ~ 5)
+         )
+```
+
+```{r}
+freq(data$gender)
+freq(data$age_group)
+freq(data$race5)
+freq(data$hispanic2)
+freq(data$college)
+```
+
+```{r}
+#doing value labels where i need them for toplines and crosstabs
+data <- data %>% 
+  mutate(age_group = labelled(age_group, labels = c(
+    "18-25" = 1, 
+    "26-34" = 2, 
+    "35-54"= 3, 
+    "55-64" = 4, 
+    "65+" = 5
+    )))
+
+val_labels(data$age_group) 
+```
+
+### Creating the weights
+
+```{r}
+#Creating Survey Weight Vectors
+#gender, age_group, race5, hispanic2, college
+age_group <- c(0.113, 0.160, 0.334, 0.168, 0.225) 
+sum(age_group) 
+gender <-c(0.483, 0.517) 
+sum(gender) 
+race5 <- c(0.641, 0.120, 0.061, 0.013, 0.165)
+sum(race5)
+hispanic2 <- c(0.168, 0.832)
+sum(hispanic2)
+college <- c(0.377, 0.623)
+sum(college)
+```
+
+### Calculating Your Post-Stratification Weights
+
+```{r}
+#gender, age_group, race5, hispanic2, college
+#Step 1: Save the target list 
+targets <- list(age_group, gender, race5, hispanic2, college)
+# remember, these names will have to match
+names(targets) <- c("age_group", "gender", "race5", "hispanic2","college")
+```
+
+```{r}
+#Step 2 - Calculate the Rake Weight
+#set.seed(1967) #Set the seed for replication  
+myweights <- anesrake(targets, data, 
+  caseid = data$response_id, cap = 8, type = "pctlim", pctlim=.05)
+```
+
+```{r}
+#Step 3 - Save the Rake Weight at the end of your sample data
+data$full_weight  <- unlist(myweights[1])
+
+#Step 4: Reviewing the newly created weights
+summary(data$full_weight) #Displays summary of the weight size to see range
+```
+
+### Creating topline reports and cross tabulations
+
+```{r}
+#frequency tables
+freq(data$gutierrez_suarez_ai, plot=F)
+freq(data$ai_ad_2, plot=F)
+freq(data$gutierrez_clear, plot=F)
+```
+
+My 3 topline reports
+
+```{r gutierrez_suarez_ai}
+topline(data, variable = gutierrez_suarez_ai, 
+        weight = full_weight, pct = FALSE, cum_pct=FALSE) %>%  
+  kable(digits=0, 
+        col.names = c('Knowledge', 'N', 
+                      'Percent Selected'),
+        escape=FALSE, align=('lcc')) %>%  
+  kable_styling(bootstrap_options = "responsive", full_width = F) %>%
+  kableExtra::footnote(alphabet = ("Full Sample MOE +/-6%")) %>%
+  kableExtra::add_header_above(c("Respondent Knowledge on Artificial Intelligence" = 3))
+```
+
+```{r ai_ad_2}
+topline(data, variable = ai_ad_2, 
+        weight = full_weight, pct = FALSE, cum_pct=FALSE) %>%  
+  kable(digits=0, 
+        col.names = c('Agree or Disagree', 'N', 
+                      'Percent Selected'),
+        escape=FALSE, align=('lcc')) %>%  
+  kable_styling(bootstrap_options = "responsive", full_width = F) %>%
+  kableExtra::footnote(alphabet = ("Full Sample MOE +/-6%")) %>%
+  kableExtra::add_header_above(c("Statement: The integration of AI into our daily life is a good thing overall." = 3))
+```
+
+```{r gutierrez_clear}
+topline(data, variable = gutierrez_clear, 
+        weight = full_weight, pct = FALSE, cum_pct=FALSE, remove = c("(Missing)")) %>%  
+  kable(digits=0, 
+        col.names = c('Levels of Importance', 'N', 
+                      'Percent Selected'),
+        escape=FALSE, align=('lcc')) %>%  
+  kable_styling(bootstrap_options = "responsive", full_width = F) %>%
+  kableExtra::footnote(alphabet = ("Full Sample MOE +/-6%")) %>%
+  kableExtra::add_header_above(c("Respondent Attitudes Toward AI Providing Clear Explanations" = 3))
+```
+
+My interesting crosstab(s) to look at how different subgroups in my sample answered my key question of interest.
+
+```{r}
+#looking at a 2-way crosstable using gutierrez_suarez_ai (ai knowledge) as the key outcome variable of interest by the variable college
+crosstab(df = data, x = gutierrez_suarez_ai, 
+         y = college, weight = full_weight, 
+         pct_type = "col") %>%
+  kable(digits=0,  
+        col.names = c('Knowledge','No college education', 'College education'), align=('lccccr')) %>%
+  kable_styling(bootstrap_options = "responsive", full_width = F, position = "left") %>% 
+  kableExtra::footnote(alphabet = ("Full Sample MOE +/-6%; Values Represent Percentage per Knowledge Level")) %>%
+  kableExtra::add_header_above(c("Respondent Knowledge on Artifical Intelligence by College Education" = 3))
+
+```
+
+```{r}
+#looking at a 2-way crosstable using gutierrez_suarez_ai (ai knowledge) as the key outcome variable of interest by the variable age_group
+crosstab(df = data, x = gutierrez_suarez_ai, 
+         y = age_group, weight = full_weight, 
+         pct_type = "col") %>%
+  kable(digits=0,  
+        col.names = c('Knowledge', '18-25', '26-34', '35-54', '55-64', '65+'), align=('lccccr')) %>%
+  kable_styling(bootstrap_options = "responsive", full_width = F, position = "left") %>% 
+  kableExtra::footnote(alphabet = ("Full Sample MOE +/-6%; Values Represent Percentage per Knowledge Level")) %>%
+  kableExtra::add_header_above(c("Respondent Knowledge on Artifical Intelligence by Age Group" = 6))
+```
+
+```{r}
+#recoding political_party variable before crosstabing
+data <- data %>%
+  mutate(political_party3 = case_when(
+           political_party == 1  ~ 1,
+           political_party == 2 ~ 2,
+           political_party == 3 ~ 3)
+         )
+
+data <- data %>% 
+  mutate(political_party3 = labelled(political_party3, labels = c(
+    "Democrat" = 1, 
+    "Republican" = 2, 
+    "Independent"= 3
+    )))
+
+freq(data$political_party3, plot=F)
+val_labels(data$political_party3) 
+```
+
+```{r}
+#looking at a 2-way crosstable using ai_ad_2 as the key outcome variable of interest by political_party
+#Statement: The integration of AI into our daily life is a good thing overall
+crosstab(df = data, x = ai_ad_2, 
+         y = political_party3, weight = full_weight, 
+         pct_type = "col") %>%
+  kable(digits=0,  
+        col.names = c('Response', 'Democrat', 'Republican', 'Independent'), align=('lccccr')) %>%
+  kable_styling(bootstrap_options = "responsive", full_width = F, position = "left") %>% 
+  kableExtra::footnote(alphabet = ("Full Sample MOE +/-6%; Values Represent Percentage per Response")) %>%
+  kableExtra::add_header_above(c("Respondent Attitudes by Political Party on the Statement: The integration of AI into our daily life is a good thing overall." = 4))
+```
+
+```{r}
+#looking at a 2-way crosstable using gutierrez_clear (ai clear statements) as the key outcome variable of interest by the variable college
+crosstab(df = data, x = gutierrez_clear, 
+         y = college, weight = full_weight, 
+         pct_type = "col") %>%
+  kable(digits=0,  
+        col.names = c('Levels of Importance','No college education', 'College education'), align=('lccccr')) %>%
+  kable_styling(bootstrap_options = "responsive", full_width = F, position = "left") %>% 
+  kableExtra::footnote(alphabet = ("Full Sample MOE +/-6%; Values Represent Percentage per Selected Level")) %>%
+  kableExtra::add_header_above(c("How important is it for you that AI systems provide clear explanations for their responses or decisions, if at all?" = 3))
+```
